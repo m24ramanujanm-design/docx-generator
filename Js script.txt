@@ -1,0 +1,955 @@
+const {
+  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+  Header, Footer, AlignmentType, HeadingLevel, BorderStyle, WidthType,
+  ShadingType, VerticalAlign, PageNumber, LevelFormat, PageBreak
+} = require('docx');
+const fs = require('fs');
+
+// Color palette
+const DARK_BLUE = "1B3A6B";
+const MID_BLUE = "2E6DB4";
+const LIGHT_BLUE = "D6E4F7";
+const AMBER = "C0392B";
+const AMBER_BG = "FDECEA";
+const GREEN = "1A7A45";
+const GREEN_BG = "E8F5EE";
+const YELLOW_BG = "FEF9E7";
+const GREY_BG = "F2F2F2";
+const WHITE = "FFFFFF";
+const BORDER_GREY = { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" };
+const BORDERS = { top: BORDER_GREY, bottom: BORDER_GREY, left: BORDER_GREY, right: BORDER_GREY };
+const NO_BORDER = { style: BorderStyle.NIL };
+const NO_BORDERS = { top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER };
+
+function h1(text) {
+  return new Paragraph({
+    heading: HeadingLevel.HEADING_1,
+    spacing: { before: 360, after: 120 },
+    children: [new TextRun({ text, bold: true, size: 36, color: DARK_BLUE, font: "Arial" })]
+  });
+}
+function h2(text) {
+  return new Paragraph({
+    heading: HeadingLevel.HEADING_2,
+    spacing: { before: 280, after: 100 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: MID_BLUE } },
+    children: [new TextRun({ text, bold: true, size: 28, color: MID_BLUE, font: "Arial" })]
+  });
+}
+function h3(text) {
+  return new Paragraph({
+    heading: HeadingLevel.HEADING_3,
+    spacing: { before: 200, after: 80 },
+    children: [new TextRun({ text, bold: true, size: 24, color: DARK_BLUE, font: "Arial" })]
+  });
+}
+function para(text, opts = {}) {
+  return new Paragraph({
+    spacing: { before: 80, after: 80, line: 276 },
+    children: [new TextRun({ text, size: 22, font: "Arial", ...opts })]
+  });
+}
+function bullet(text, level = 0) {
+  return new Paragraph({
+    numbering: { reference: "bullets", level },
+    spacing: { before: 60, after: 60 },
+    children: [new TextRun({ text, size: 22, font: "Arial" })]
+  });
+}
+function numbered(text, level = 0) {
+  return new Paragraph({
+    numbering: { reference: "numbers", level },
+    spacing: { before: 60, after: 60 },
+    children: [new TextRun({ text, size: 22, font: "Arial" })]
+  });
+}
+function spacer(before = 120) {
+  return new Paragraph({ spacing: { before } });
+}
+function pageBreak() {
+  return new Paragraph({ children: [new PageBreak()] });
+}
+
+function riskRow(category, risk, likelihood, impact, mitigation) {
+  const likelihoodColor = likelihood === "High" ? "C0392B" : likelihood === "Medium" ? "E67E22" : "1A7A45";
+  const impactColor = impact === "High" ? "C0392B" : impact === "Medium" ? "E67E22" : "1A7A45";
+  const cellMargins = { top: 80, bottom: 80, left: 120, right: 120 };
+  return new TableRow({
+    children: [
+      new TableCell({ borders: BORDERS, width: { size: 1440, type: WidthType.DXA }, margins: cellMargins,
+        children: [new Paragraph({ children: [new TextRun({ text: category, size: 20, bold: true, font: "Arial" })] })] }),
+      new TableCell({ borders: BORDERS, width: { size: 2200, type: WidthType.DXA }, margins: cellMargins,
+        children: [new Paragraph({ children: [new TextRun({ text: risk, size: 20, font: "Arial" })] })] }),
+      new TableCell({ borders: BORDERS, width: { size: 900, type: WidthType.DXA }, margins: cellMargins,
+        shading: { fill: likelihoodColor + "22", type: ShadingType.CLEAR },
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: likelihood, size: 20, bold: true, color: likelihoodColor, font: "Arial" })] })] }),
+      new TableCell({ borders: BORDERS, width: { size: 900, type: WidthType.DXA }, margins: cellMargins,
+        shading: { fill: impactColor + "22", type: ShadingType.CLEAR },
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: impact, size: 20, bold: true, color: impactColor, font: "Arial" })] })] }),
+      new TableCell({ borders: BORDERS, width: { size: 3120, type: WidthType.DXA }, margins: cellMargins,
+        children: [new Paragraph({ children: [new TextRun({ text: mitigation, size: 20, font: "Arial" })] })] }),
+    ]
+  });
+}
+
+function headerRow(cols, widths) {
+  const cellMargins = { top: 80, bottom: 80, left: 120, right: 120 };
+  return new TableRow({
+    tableHeader: true,
+    children: cols.map((col, i) => new TableCell({
+      borders: BORDERS,
+      width: { size: widths[i], type: WidthType.DXA },
+      shading: { fill: DARK_BLUE, type: ShadingType.CLEAR },
+      margins: cellMargins,
+      children: [new Paragraph({ alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: col, bold: true, color: WHITE, size: 20, font: "Arial" })] })]
+    }))
+  });
+}
+
+function infoBox(title, lines, bgColor = LIGHT_BLUE, titleColor = DARK_BLUE) {
+  const cellMargins = { top: 100, bottom: 100, left: 160, right: 160 };
+  const children = [
+    new Paragraph({ children: [new TextRun({ text: title, bold: true, size: 22, color: titleColor, font: "Arial" })] }),
+    ...lines.map(l => new Paragraph({
+      numbering: l.startsWith("•") ? undefined : undefined,
+      spacing: { before: 40, after: 40 },
+      children: [new TextRun({ text: l, size: 21, font: "Arial" })]
+    }))
+  ];
+  return new Table({
+    width: { size: 9360, type: WidthType.DXA },
+    columnWidths: [9360],
+    rows: [new TableRow({
+      children: [new TableCell({
+        borders: { top: { style: BorderStyle.SINGLE, size: 6, color: titleColor },
+                   bottom: BORDER_GREY, left: { style: BorderStyle.SINGLE, size: 6, color: titleColor }, right: BORDER_GREY },
+        width: { size: 9360, type: WidthType.DXA },
+        shading: { fill: bgColor, type: ShadingType.CLEAR },
+        margins: cellMargins,
+        children
+      })]
+    })]
+  });
+}
+
+function twoColRow(left, right, lWidth = 3000, rWidth = 6360) {
+  const total = lWidth + rWidth;
+  const cellMargins = { top: 80, bottom: 80, left: 120, right: 120 };
+  return new TableRow({
+    children: [
+      new TableCell({ borders: BORDERS, width: { size: lWidth, type: WidthType.DXA }, margins: cellMargins,
+        shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+        children: [new Paragraph({ children: [new TextRun({ text: left, bold: true, size: 21, font: "Arial" })] })] }),
+      new TableCell({ borders: BORDERS, width: { size: rWidth, type: WidthType.DXA }, margins: cellMargins,
+        children: [new Paragraph({ children: [new TextRun({ text: right, size: 21, font: "Arial" })] })] }),
+    ]
+  });
+}
+
+const doc = new Document({
+  numbering: {
+    config: [
+      { reference: "bullets", levels: [
+        { level: 0, format: LevelFormat.BULLET, text: "\u2022", alignment: AlignmentType.LEFT,
+          style: { paragraph: { indent: { left: 720, hanging: 360 } } } },
+        { level: 1, format: LevelFormat.BULLET, text: "\u25E6", alignment: AlignmentType.LEFT,
+          style: { paragraph: { indent: { left: 1080, hanging: 360 } } } }
+      ]},
+      { reference: "numbers", levels: [
+        { level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT,
+          style: { paragraph: { indent: { left: 720, hanging: 360 } } } }
+      ]}
+    ]
+  },
+  styles: {
+    default: { document: { run: { font: "Arial", size: 22 } } },
+    paragraphStyles: [
+      { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
+        run: { size: 36, bold: true, font: "Arial", color: DARK_BLUE },
+        paragraph: { spacing: { before: 360, after: 120 }, outlineLevel: 0 } },
+      { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
+        run: { size: 28, bold: true, font: "Arial", color: MID_BLUE },
+        paragraph: { spacing: { before: 280, after: 100 }, outlineLevel: 1 } },
+      { id: "Heading3", name: "Heading 3", basedOn: "Normal", next: "Normal", quickFormat: true,
+        run: { size: 24, bold: true, font: "Arial", color: DARK_BLUE },
+        paragraph: { spacing: { before: 200, after: 80 }, outlineLevel: 2 } },
+    ]
+  },
+  sections: [{
+    properties: {
+      page: {
+        size: { width: 12240, height: 15840 },
+        margin: { top: 1080, right: 1080, bottom: 1080, left: 1080 }
+      }
+    },
+    headers: {
+      default: new Header({
+        children: [new Paragraph({
+          border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: MID_BLUE } },
+          children: [
+            new TextRun({ text: "CONFIDENTIAL — INVESTMENT ADVISORY WHITE PAPER", size: 18, color: "888888", font: "Arial" }),
+            new TextRun({ text: "     |     RFP-CPR-2026-10508 — CEB Mauritius REHF", size: 18, color: "888888", font: "Arial" }),
+          ]
+        })]
+      })
+    },
+    footers: {
+      default: new Footer({
+        children: [new Paragraph({
+          border: { top: { style: BorderStyle.SINGLE, size: 4, color: MID_BLUE } },
+          alignment: AlignmentType.CENTER,
+          children: [
+            new TextRun({ text: "Prepared June 2026  |  For Private Circulation Only  |  Page ", size: 18, color: "888888", font: "Arial" }),
+            new PageNumber({ size: 18, color: "888888", font: "Arial" })
+          ]
+        })]
+      })
+    },
+    children: [
+
+      // ============================================================
+      // COVER PAGE
+      // ============================================================
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [9360],
+        rows: [new TableRow({ children: [new TableCell({
+          borders: NO_BORDERS,
+          width: { size: 9360, type: WidthType.DXA },
+          shading: { fill: DARK_BLUE, type: ShadingType.CLEAR },
+          margins: { top: 600, bottom: 600, left: 600, right: 600 },
+          children: [
+            new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 80 },
+              children: [new TextRun({ text: "INVESTMENT ADVISORY WHITE PAPER", bold: true, size: 44, color: WHITE, font: "Arial" })] }),
+            new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 80, after: 80 },
+              children: [new TextRun({ text: "Central Electricity Board of Mauritius", size: 30, color: "B0C8EE", font: "Arial" })] }),
+            new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 80, after: 200 },
+              children: [new TextRun({ text: "RFP-CPR-2026-10508", size: 28, bold: true, color: "FFD700", font: "Arial" })] }),
+            new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 80 },
+              children: [new TextRun({ text: "Purchase of Electrical Energy from", size: 26, color: "D6E4F7", font: "Arial" })] }),
+            new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 40, after: 40 },
+              children: [new TextRun({ text: "10 x 10 MWac Renewable Energy Hybrid Facilities", bold: true, size: 34, color: WHITE, font: "Arial" })] }),
+            new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 40, after: 200 },
+              children: [new TextRun({ text: "(Solar PV + Battery Energy Storage System)", size: 26, color: "D6E4F7", font: "Arial" })] }),
+          ]
+        })]})
+        ]
+      }),
+
+      spacer(200),
+
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [4500, 4860],
+        rows: [
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 4500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Document Type", bold: true, size: 21, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Independent Investment Advisory White Paper", size: 21, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 4500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Project Reference", bold: true, size: 21, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "RFP-CPR-2026-10508", size: 21, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 4500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Date of Analysis", bold: true, size: 21, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "June 2026", size: 21, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 4500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Source Documents Reviewed", bold: true, size: 21, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [
+                new Paragraph({ children: [new TextRun({ text: "RFP Document (13 April 2026)", size: 21, font: "Arial" })] }),
+                new Paragraph({ children: [new TextRun({ text: "Addendum No. 1 (06 May 2026)", size: 21, font: "Arial" })] }),
+                new Paragraph({ children: [new TextRun({ text: "Addendum No. 2 (17 June 2026)", size: 21, font: "Arial" })] }),
+                new Paragraph({ children: [new TextRun({ text: "Pre-Bid Meeting Minutes (27 May 2026)", size: 21, font: "Arial" })] }),
+              ]
+            }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 4500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Overall Investment Verdict", bold: true, size: 21, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: YELLOW_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "CAUTIOUSLY VIABLE — Proceed with Conditions", bold: true, size: 21, color: "8B6914", font: "Arial" })] })] }),
+          ]}),
+        ]
+      }),
+
+      spacer(200),
+      infoBox("DISCLAIMER", [
+        "This white paper is prepared for informational and advisory purposes only. It is based solely on publicly available bid documents issued by the Central Electricity Board (CEB) of Mauritius. This document does not constitute legal, financial, or tax advice. Prospective investors must conduct their own independent due diligence and consult qualified legal, financial, technical, and regulatory advisors before making any investment decision. The consultant accepts no liability for decisions made on the basis of this document."
+      ], "FFF8E1", "8B6914"),
+
+      pageBreak(),
+
+      // ============================================================
+      // EXECUTIVE SUMMARY
+      // ============================================================
+      h1("1. Executive Summary"),
+      para("The Central Electricity Board (CEB) of Mauritius has issued RFP-CPR-2026-10508, inviting private developers to bid for the development of 10 x 10 MWac (100 MWac total) Renewable Energy Hybrid Facilities (REHFs) comprising solar PV and co-located Battery Energy Storage Systems (BESS). Each facility is a separate 25-year Power Purchase Agreement (PPA) project, with commercial operation targeted for January 2028."),
+      spacer(80),
+      para("As an independent investment consultant, our assessment is that this project represents a credible, government-backed renewable energy opportunity in a stable island economy with strong policy support. However, it carries significant implementation complexity, penalty exposure, and permitting risk that must be carefully evaluated and priced into any bid."),
+      spacer(80),
+
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [4680, 4680],
+        rows: [
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 4680, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREEN_BG, type: ShadingType.CLEAR },
+              children: [
+                new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: "Key Strengths", bold: true, size: 22, color: GREEN, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "25-year PPA with sovereign-backed utility", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Government Support Agreement (GSA) backstop", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Relaxed qualification criteria (Addendum No. 2)", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "EPC/O&M contractors need not be equity shareholders", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Force Majeure protection for cyclone events", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Late payment surcharge protects revenue", size: 20, font: "Arial" })] }),
+              ]
+            }),
+            new TableCell({ borders: BORDERS, width: { size: 4680, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: AMBER_BG, type: ShadingType.CLEAR },
+              children: [
+                new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: "Key Risks & Concerns", bold: true, size: 22, color: AMBER, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Strict 18-month COD with layered penalties", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Complex dispatch profile limits achievable CUF", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Multiple permitting pathways with uncertain timelines", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Land acquisition restricted to low/marginal agricultural land", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Tariff confidentiality — no benchmark pricing available", size: 20, font: "Arial" })] }),
+                new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { before: 40, after: 40 },
+                  children: [new TextRun({ text: "Track record of delays in previous Mauritius RE projects", size: 20, font: "Arial" })] }),
+              ]
+            }),
+          ]})
+        ]
+      }),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 2: PROJECT OVERVIEW
+      // ============================================================
+      h1("2. Project Overview"),
+      h2("2.1 Procuring Authority"),
+      para("The Central Electricity Board (CEB) is a parastatal body wholly owned by the Government of Mauritius (GoM) and is the sole entity responsible for the transmission, distribution, and supply of electricity in Mauritius. CEB operates under the aegis of the Ministry of Energy and Public Utilities. Its status as the national utility and sole electricity offtaker provides a strong counterparty profile."),
+
+      h2("2.2 Project Scope"),
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [3200, 6160],
+        rows: [
+          twoColRow("Total Programme Capacity", "100 MWac (10 projects of 10 MWac each)"),
+          twoColRow("Technology", "Solar PV (monocrystalline) + Co-located BESS"),
+          twoColRow("Per Project Capacity", "10 MWac net at Point of Delivery"),
+          twoColRow("PPA Term", "25 years from Project SCOD"),
+          twoColRow("Target SCOD", "January 2028"),
+          twoColRow("Total COD Timeline", "18 months from PPA signature"),
+          twoColRow("Maximum Bids per Bidder", "2 bids (maximum 20 MWac per bidder)"),
+          twoColRow("BESS Minimum Capacity", "At least 30% of solar contracted capacity"),
+          twoColRow("Minimum CUF", "22% declared and maintained throughout Term"),
+          twoColRow("Grid Connection Voltage", "22 kV to eligible CEB substations"),
+          twoColRow("Bid Security", "MUR 10 Million per proposal"),
+          twoColRow("Development Security", "MUR 30 Million per proposal"),
+          twoColRow("Financial Evaluation Method", "Lowest Levelised Unit Cost of Electricity (LUCE)"),
+        ]
+      }),
+
+      h2("2.3 Strategic Context"),
+      para("Mauritius declared a government programme in January 2025 targeting decarbonisation of the power sector, with a MUR 30 billion investment commitment in solar PV and biomass. As of December 2025, the share of renewables in the national grid had declined to approximately 17%, against earlier targets. This RFP is part of the corrective response, building on lessons from the 2022 REHF procurement where only 60 MW of 130 MW had reached implementation stage as of January 2026."),
+      spacer(80),
+      para("The government has also positioned this procurement under the International Solar Alliance (ISA) SIDS Platform (Addendum No. 1), potentially opening access to multilateral financing instruments and providing additional investor confidence through international visibility."),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 3: QUALIFICATION CRITERIA
+      // ============================================================
+      h1("3. Qualification & Eligibility Criteria"),
+      h2("3.1 Technical Criteria — As Amended by Addendum No. 2"),
+      para("The original RFP required bidders to have co-located BESS development AND O&M experience. Addendum No. 2 made significant relaxations that make this project more accessible:"),
+      spacer(80),
+
+      infoBox("Part A — Development Experience (Amended)", [
+        "Bidders must demonstrate experience in developing at least TWO solar PV projects of 10 MWac each, connected to at least 11 kV, WITH a co-located BESS of at least 10 MWh per project, commissioned within the last 10 Financial Years.",
+        "",
+        "Key change from original: BESS co-located requirement is retained but the requirement for the BESS to be at least 30% of contracted capacity for development experience has been restructured — bidders now need to demonstrate developing ONE BESS of at least 10MWh (not necessarily tied to the percentage threshold for each project).",
+        "",
+        "EPC contractors/sub-contractors may also qualify if they can present completion certificates from the developer."
+      ], LIGHT_BLUE, DARK_BLUE),
+
+      spacer(120),
+
+      infoBox("Part B — O&M Experience (Amended)", [
+        "Bidders must have O&M experience for ONE solar PV project of at least 10 MWac for an aggregate period of 5 years in the last 10 Financial Years.",
+        "",
+        "Key change from original: The co-located BESS O&M requirement has been REMOVED. Bidders only need to demonstrate solar PV O&M experience. This was a direct response to bidder feedback that utility-scale BESS O&M experience was too new globally to satisfy a 5-year threshold."
+      ], GREEN_BG, GREEN),
+
+      spacer(120),
+
+      infoBox("Part C — EPC/O&M Contractor Shareholding (Critical Change)", [
+        "Original requirement: EPC contractors needed to be shareholders in the SPV.",
+        "",
+        "Addendum No. 2 change: Where Technical Capacity is demonstrated through an EPC Contractor and/or O&M Contractor, such contractors do NOT need to be shareholders in the SPV. Instead, the Power Generator must ensure the EPC Contractor remains engaged until Project COD, and the O&M Contractor remains engaged for a minimum of 2 years following Project COD.",
+        "",
+        "Replacement of EPC/O&M contractors after PPA execution requires prior written consent from CEB. Unauthorised replacement constitutes material breach and entitles CEB to terminate the PPA."
+      ], YELLOW_BG, "8B6914"),
+
+      h2("3.2 Financial Criteria"),
+      para("Each bidder must demonstrate a minimum Net Worth of MUR 400 Million (approximately USD 8.5 million at current rates) for the Financial Year immediately preceding the Bid Due Date. For JVs, this may be met cumulatively with the Lead Member demonstrating at least 50% (MUR 200 Million)."),
+      spacer(80),
+      para("Bidders may rely on Affiliate net worth, subject to a board resolution undertaking to support equity investment. Foreign Investment Funds may use Assets Under Management (AUM) as the metric."),
+
+      h2("3.3 Bid Eligibility — Key Restrictions"),
+      bullet("A bidder (including affiliates) may submit a maximum of 2 bids — the two projects must not connect to the same substation."),
+      bullet("An entity cannot bid individually AND as a JV member — this creates a Conflict of Interest and disqualifies ALL their bids."),
+      bullet("Maximum of 3 members in any Intended JV."),
+      bullet("Addendum No. 2 (Part D) deleted the 20% ownership interest carve-out from the Conflict of Interest provisions — any shared ownership between competing bidders is now potentially disqualifying."),
+      bullet("Addendum No. 2 (Part E) amended the Letter of Bid declaration to clarify that neither the bidder nor any affiliate may submit more than 2 bids, whether individually, as a JV member, or through any other arrangement."),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 4: REQUIRED PERMISSIONS AND APPROVALS
+      // ============================================================
+      h1("4. Required Permissions, Approvals & Regulatory Pathways"),
+      para("This is one of the most critical and time-sensitive aspects of the project. The 18-month implementation window from PPA signature to COD (with only 7 months for Conditions Subsequent) is aggressive given the number of approvals required. Below is a comprehensive breakdown of all permits and approvals a successful bidder will need to navigate."),
+
+      h2("4.1 Environmental Impact Assessment (EIA)"),
+      infoBox("EIA — Critical Path Item", [
+        "An EIA licence is mandatory under the Environment Protection Act (EPA) of Mauritius. This is explicitly required under the PPA as a Condition Subsequent.",
+        "",
+        "Key considerations:",
+        "  • EIA applications must be submitted to the Ministry of Environment and Solid Waste Management.",
+        "  • Processing times in Mauritius can range from 3 to 12+ months depending on project scale and complexity.",
+        "  • International lenders (DFIs) typically require an ESIA (Environmental & Social Impact Assessment) aligned with IFC Performance Standards, which is more comprehensive and time-consuming than a basic EIA.",
+        "  • CEB clarified at the Pre-Bid Meeting (Item 29) that only an EIA licence is required under the PPA — responsibility for financing ESIA requirements rests with the bidder.",
+        "  • Delay in EIA that is outside the bidder's control qualifies as a Force Majeure event and may attract extension of time (Pre-Bid Item 5).",
+        "  • Addendum No. 2 (Part H) now explicitly includes 'any applicable permits not being granted by relevant Governmental Authorities despite diligent efforts' as a Non-Natural Force Majeure Event."
+      ], AMBER_BG, AMBER),
+
+      h2("4.2 Land Suitability Clearance (MSIRI)"),
+      para("All project sites must be certified as NOT being on prime or moderate agricultural land by the Mauritius Sugar Industry Research Institute (MSIRI). This is a pre-LOI requirement — bidders must obtain this clearance within 8 weeks of LOI issuance."),
+      bullet("The MSIRI Land Suitability Map (https://landsuitability.msiri.mu) must be consulted before site selection."),
+      bullet("Only 'low' and 'marginal' agricultural land classifications are acceptable."),
+      bullet("Unclassified lands require direct contact with MSIRI for assessment."),
+      bullet("Even if MSIRI provides a no-objection on a site with apparent prime classification, CEB will proceed with the PPA (Pre-Bid Item 34) — but this appears to be an exceptional case."),
+      bullet("Bidders should note that the MSIRI map does not cover all of Mauritius, creating uncertainty for some potential sites."),
+      bullet("This restriction significantly limits the land bank available to developers and increases site competition risk."),
+
+      h2("4.3 Land Acquisition & Lease Agreement"),
+      para("Bidders must submit a notarised land commitment letter with their bid (Annex 12) along with copies of title deeds, confirming the landowner's commitment to lease or sell the land. This is a pre-bid requirement."),
+      bullet("A full Intended Executable Land Lease Agreement must be submitted to CEB within 8 weeks of LOI."),
+      bullet("No change of project sites is permitted after the Bid Due Date."),
+      bullet("Bidders proposing the same land create a priority conflict — the bidder with the lowest tariff on that specific plot is selected."),
+      bullet("Land must accommodate both the solar PV farm and the co-located BESS within the same premises."),
+
+      h2("4.4 Right of Way / Wayleave"),
+      para("The 22 kV interconnection line from the project to the eligible substation must be constructed by CEB but at the expense of the Power Generator. All right of way and wayleave permits must be in CEB's name."),
+      bullet("Bidders must identify land owners along the proposed 22 kV line routing before PPA execution (Pre-Bid Item 19)."),
+      bullet("Formal Right of Way acquisition must be completed during the Conditions Subsequent period (7 months post-PPA)."),
+      bullet("If landowners refuse after initially agreeing, the bidder must identify an alternative routing (Pre-Bid Item 20)."),
+      bullet("Where Right of Way requires prior EIA approval before it can be granted, this creates a circular dependency that bidders must plan for."),
+      bullet("The 22 kV line, once commissioned, is taken over by CEB, which then maintains it — reducing long-term operational liability for the Power Generator."),
+      bullet("Cost estimates (April 2026): Overhead line MUR 3.2M/km; Underground cable MUR 17.4M/km (excluding resurfacing) to MUR 35.1M/km (full-width resurfacing). These are significant capital items that must be priced into the tariff."),
+
+      h2("4.5 Utility Regulatory Authority (URA) Approval"),
+      para("The PPA requires approval from the Utility Regulatory Authority (URA) before it can be executed. This is noted in Section 25.1 of the RFP. The URA is Mauritius's independent energy regulator, and its approval is a standard but non-trivial procedural step."),
+
+      h2("4.6 Government Support Agreement (GSA)"),
+      para("The Power Generator must execute a Government Support Agreement with the GoM during the Conditions Subsequent period. The GSA provides government-level backstop for CEB payment failures, Change in Law events, and CEB Event of Default terminations. A copy of the approved GSA accompanies the RFP and no amendments are permitted."),
+
+      h2("4.7 Building & Planning Permits"),
+      para("Solar PV farms and BESS installations require planning permission and building permits from local authorities in Mauritius, administered through local municipal councils and the Ministry of National Infrastructure. These are project-specific and their timelines vary by location."),
+
+      h2("4.8 Procurement of Communication Infrastructure"),
+      para("The Power Generator must install fibre optic communication cables from the project site to the CEB 22 kV substation for real-time data transfer. This requires wayleave permissions for the fibre route, which may follow the same corridor as the 22 kV line or a separate path. The interface at the substation is installed by CEB."),
+
+      h2("4.9 Grid Connection & Commissioning Testing"),
+      para("The project must pass CEB's commissioning tests as set out in Schedule 4 of the PPA. An Independent Engineer, appointed by CEB within 2 months of PPA execution, must certify the installation, testing, and commissioning, including the Pyranometer System. The Independent Engineer's approval is required before COD can be declared."),
+
+      h2("4.10 BESS and PV Equipment Certifications"),
+      para("All BESS and solar PV equipment must comply with an extensive list of IEC standards specified in Section O of Schedule 2 of the RFP. Equipment sourced from manufacturers must carry the relevant certifications:"),
+      bullet("Solar Modules: IEC 61215, IEC 61730, IEC 61701, IEC 62804-1"),
+      bullet("Inverters: IEC 62109-1/-2, IEC 62920, IEC 61683, IEC 62116"),
+      bullet("BESS: IEC 61427, IEC 62933 series, IEC 62619, IEC 63056, UL 1973, UL 9540, UL 1642"),
+      bullet("Solar modules must be from a Tier 1 manufacturer per the Bloomberg New Energy Finance listing."),
+      bullet("Minimum module efficiency of 20%, rated power >540W, annual degradation ≤0.45% per annum."),
+
+      h2("4.11 E-Waste and Hazardous Materials Disposal"),
+      para("The Power Generator is required to dispose of solar PV modules, inverters, and BESS at end of useful life or when defective, in strict compliance with Mauritius e-waste and hazardous waste legislation. The EIA licence will likely specify disposal conditions. This is a long-term liability that must be factored into project financial modelling over the 25-year term."),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 5: TECHNICAL & OPERATIONAL REQUIREMENTS
+      // ============================================================
+      h1("5. Technical & Operational Requirements Analysis"),
+      h2("5.1 Dispatch Profile & CUF Constraints"),
+      para("The dispatch profile required by CEB is highly prescriptive and represents the most technically and commercially complex aspect of this project. It is designed to shift solar generation from daytime to evening peak demand periods."),
+      spacer(80),
+
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [2800, 3280, 3280],
+        rows: [
+          headerRow(["Parameter", "Business Days (Weekdays)", "Non-Business Days (Weekends/PH)"], [2800, 3280, 3280]),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Morning/Early Period", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "00:00–14:00: NO export to grid. BESS charging only.", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "00:00–09:00: NO export to grid. BESS charging only.", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Afternoon Export", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "14:00–15:00: Ramp to 5 MW (50%). Hold 5 MW until 17:00.", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "09:00–10:00: Ramp to 2.5 MW (25%). Hold 2.5 MW until 16:00.", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Evening Peak Export", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "17:00–18:00: Ramp to 10 MW (100%). Hold 10 MW until 22:00.", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "16:00–17:00: Ramp to 8 MW (80%). Hold 8 MW until 22:00.", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Ramp Down & Disconnect", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "22:00–23:00: Ramp down and disconnect.", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3280, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "22:00–23:00: Ramp down and disconnect.", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREY_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Minimum Guaranteed Output", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, colSpan: 2, width: { size: 6560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "At least 20% (2 MW) during daytime export periods; at least 50% (5 MW) during evening/night periods.", size: 20, font: "Arial" })] })] }),
+          ]}),
+        ]
+      }),
+
+      spacer(120),
+      para("Consultant note: Bidders raised at the Pre-Bid Meeting (Item 12) that the dispatch profile caps achievable CUF at approximately 27%. CEB confirmed that bidders may declare any CUF from 22% upwards, provided the dispatch profile is met. Bidders should model BESS sizing carefully — the profile requires significant battery capacity (approximately 50–60 MWh per 10 MW plant) to deliver 8 hours of evening discharge. This is a substantial capital cost driver."),
+
+      h2("5.2 Forecasting Obligations & Penalties"),
+      para("The Power Generator must submit Day Ahead Forecasts to the CEB System Control Centre before 19:00 hours daily, followed by Revised Forecasts during the day. The Revised Forecast is binding and deviations exceeding +/-5% trigger Forecasting Penalties under the PPA."),
+      bullet("Addendum No. 2 (Part R) confirms Forecasting Penalties do not apply during Curtailment."),
+      bullet("Addendum No. 2 (Part J) confirms Forecasting Penalties do not apply during Cyclone Class 3 or 4 warnings."),
+      bullet("Post-Cyclone Recovery Periods (up to 12 months aggregate over the Term) also exempt the plant from Forecasting Penalties, DFR Damages, and Generation Shortfall Liquidated Damages for performance directly attributable to cyclone damage."),
+
+      h2("5.3 Demand Fulfilment Ratio (DFR)"),
+      para("The DFR requirement is a new and significant operational obligation introduced in Addendum No. 2 (Part K). The Power Generator must maintain a daily average DFR of at least 90% (0.9) across all time blocks where power is exported."),
+      para("DFR = Actual Power Injected (MW) / Revised Forecast (MW), capped at 1.0."),
+      para("DFR Damages = 1.5 x Tariff x energy shortfall if daily average DFR falls below 0.9. These damages do not apply where shortfall is due to CEB curtailment instructions, cyclone warnings, Post-Cyclone Recovery, under-frequency grid events, or where solar irradiation (measured by CEB Pyranometers) is below 3.0 kWh/m2/day."),
+
+      h2("5.4 Ancillary Services"),
+      para("The project must provide ancillary services including frequency regulation (grid-forming BESS inverters required), voltage support, and power factor correction (0.9 lagging to 0.9 leading). The plant must maintain a minimum MW absorption capacity equivalent to 20% of Contracted Capacity for at least one hour for over-frequency regulation. No separate compensation is payable for these services — they must be built into the tariff."),
+      para("The plant must be overdesigned by 20% in capacity (MW) to provide grid support (Pre-Bid Item 37). This overdesign cost must also be priced into the tariff."),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 6: RISK MATRIX
+      // ============================================================
+      h1("6. Comprehensive Risk Matrix"),
+      para("The following matrix identifies key risks across all project phases, their likelihood and impact, and recommended mitigations. This should form the basis of a detailed risk register in the project's financial model."),
+      spacer(80),
+
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [1440, 2200, 900, 900, 3120],
+        rows: [
+          headerRow(["Category", "Risk Description", "Likelihood", "Impact", "Recommended Mitigation"], [1440, 2200, 900, 900, 3120]),
+          // Development Risks
+          riskRow("Land", "Inability to identify suitable low/marginal land of adequate size near eligible substation", "High", "High", "Conduct MSIRI land surveys early. Identify multiple fallback parcels. Engage land consultants in Mauritius pre-bid."),
+          riskRow("Land", "Competing bidder proposes same land; lower tariff wins the site", "Medium", "High", "Identify less contested parcels, ideally off the primary solar belt. Maintain tariff competitiveness."),
+          riskRow("Permitting", "EIA licence delayed beyond 7-month Conditions Subsequent period", "High", "High", "Engage EIA consultants immediately on PPA execution. Seek Force Majeure extension proactively if delays foreseeable."),
+          riskRow("Permitting", "Right of Way refusal by landowners along 22 kV line route", "Medium", "Medium", "Identify and informally engage ROW landowners pre-bid. Identify alternative routes. Budget contingency for underground cables."),
+          riskRow("Permitting", "Building/planning permit delays at local municipality level", "Medium", "Medium", "Engage early with local councils. Use experienced local advisors."),
+          riskRow("Technical", "Incorrect BESS sizing leading to inability to meet dispatch profile", "Medium", "High", "Commission detailed energy yield and BESS sizing study before bid submission. Use conservative solar resource data."),
+          riskRow("Technical", "PV module degradation causing CUF shortfall in later years", "Medium", "Medium", "Declare conservative CUF (22-24%). Plan mid-term revamp of PV capacity. Oversize PV array at outset."),
+          riskRow("Technical", "BESS degradation reducing discharge capacity over 25 years", "High", "High", "Design with battery replacement cycles built into capex model. Negotiate module warranty with supplier. Structure O&M contract to cover replacement."),
+          riskRow("Technical", "Grid-forming inverter technology unavailability or immaturity", "Low", "High", "Select established grid-forming inverter manufacturers. Require factory acceptance tests. Build commissioning buffer."),
+          riskRow("Financial", "No tariff benchmark — risk of submitting non-competitive bid", "High", "Medium", "Build detailed bottom-up LCOE model. Benchmark against comparable African/island BESS projects. Engage local advisors with market insight."),
+          riskRow("Financial", "DFR Damages and Forecasting Penalties eroding revenue", "Medium", "High", "Invest in high-quality weather forecasting software. Budget a 3-5% revenue reserve for penalty exposure in financial model."),
+          riskRow("Financial", "Generation Shortfall Liquidated Damages (1.5x tariff) for missed CUF", "Medium", "High", "Declare conservative CUF. Oversize PV array. Plan scheduled maintenance outside peak production periods."),
+          riskRow("Financial", "Currency risk on USD component of tariff", "Medium", "Medium", "Model tariff sensitivity to MUR depreciation. Consider higher MUR weighting in tariff (provides competitive advantage per Pre-Bid Item 16)."),
+          riskRow("Financial", "Financing / DFI requirements not met within 7-month CS period", "High", "High", "Initiate DFI engagement immediately post-PPA. Consider equity-heavy capital structure to reduce lender dependency. Note MIGA/AfDB PRG availability."),
+          riskRow("Counterparty", "CEB payment delays (though late payment surcharge applies)", "Low", "Medium", "GSA backstop provides GoM guarantee for CEB defaults. Monitor CEB financial health during PPA term."),
+          riskRow("Contractual", "EPC Contractor replacement required but CEB consent delayed", "Medium", "Medium", "Build strong EPC contractor relationship. Have pre-qualified backup EPC on standby."),
+          riskRow("Force Majeure", "Cyclone damage to facility during 25-year PPA", "High", "High", "Design to 280 km/hr wind gust standard (3-second) as required. Insure at full replacement value. Post-cyclone recovery provisions now in PPA (Addendum No. 2 Part J)."),
+          riskRow("Regulatory", "Change in Law adverse impact on project economics", "Medium", "Medium", "Change in Law mechanism in PPA (threshold US$30,000 material adverse effect). GSA covers Change in Law payments if CEB cannot meet obligations."),
+          riskRow("Market", "Substation capacity exhausted by lower-priced competitors", "Medium", "High", "Target substations with multiple available bays. Prepare bids for 2 separate substations if possible."),
+          riskRow("Reputation", "Track record of Mauritius RE project delays (60/130 MW from 2022 RFP stuck)", "High", "Low", "Lessons appear incorporated in new RFP. GSA, relaxed EPC shareholding, and cyclone provisions reduce structural risk vs 2022 RFP."),
+        ]
+      }),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 7: DOCUMENT DISCREPANCIES
+      // ============================================================
+      h1("7. Document Discrepancies & Notable Clarifications"),
+      para("During our review of the RFP, both Addenda, and the Pre-Bid Meeting Minutes, we identified the following discrepancies, ambiguities, and areas that require careful attention from prospective bidders."),
+
+      h2("7.1 Confirmed Discrepancies Resolved by Addenda"),
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [700, 2400, 3130, 3130],
+        rows: [
+          headerRow(["#", "Issue", "Original RFP", "Resolution (Addendum No. 2)"], [700, 2400, 3130, 3130]),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 700, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 80, right: 80 },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "1", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Section 28.2 reference error", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Last line referenced 'Section 25.2' (does not exist in the document)", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Corrected to 'Section 28.2' (Part G)", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 700, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 80, right: 80 },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "2", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Section 15.1(e) Annex reference error", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Referenced 'Annex 4' for Power of Attorney (Intended JV Lead Member)", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Corrected to 'Annex 5B' (Part I)", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 700, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 80, right: 80 },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "3", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Definition of 'Project' in Glossary", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Referred to 'a single point of injection' which conflicted with grid connection provisions", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Amended to 'an interconnection point into the grid at the Point of Delivery' (Part J)", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 700, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 80, right: 80 },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "4", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Section 3.2(c) — lock-in reference", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Contained the sentence: 'Following execution of the PPA, the lock-in restrictions set out in Section 3.3 will apply' — this was redundant and potentially confusing", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Sentence deleted (Part H)", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 700, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 80, right: 80 },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "5", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Schedule 3 — 'Annex 11' reference in shareholding section", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Referred to 'Annex 11 — Format for Certificate of Shareholding of Bidder' in the Lock-in row of Schedule 3", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Reference deleted. Annex 11 is the Estimated Annual Exported Energy table, not a shareholding certificate — the original reference was erroneous (Part F)", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 700, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 80, right: 80 },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "6", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Conflict of Interest — 20% ownership carve-out", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Section 3.2(a)(i)(B)(I) provided that ownership interests below 20% did not constitute a Conflict of Interest", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3130, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "This paragraph has been DELETED. Any cross-ownership between bidders is now potentially disqualifying regardless of percentage (Part D) — significantly stricter.", size: 20, font: "Arial" })] })] }),
+          ]}),
+        ]
+      }),
+
+      h2("7.2 Residual Ambiguities and Open Issues"),
+      infoBox("Items Requiring Clarification / Further Legal Review", [
+        "1. BESS minimum capacity for development experience: The original RFP required BESS capacity of at least 30% of contracted capacity for EACH qualifying project. Addendum No. 2 Part A restructured this to require 'experience in developing ONE BESS of at least 10MWh' — it is unclear whether the 30% threshold per project still applies independently or has been replaced. Bidders should seek written confirmation from CEB.",
+        "",
+        "2. Pre-Bid Meeting Item 36 was not answered: The question regarding 'How should bidders manage Right of Way where authorities require prior EIA approval?' was left unanswered in the published Pre-Bid Minutes. This circular dependency represents a serious implementation risk and requires a formal clarification submission to CEB.",
+        "",
+        "3. The Change in Law threshold (US$30,000 per Addendum No. 2 Part I) appears very low for a 10 MW project and may not provide meaningful protection against moderate regulatory changes. Bidders should model scenarios where Change in Law adjustments do not fully compensate for adverse regulatory shifts.",
+        "",
+        "4. The limitation of liability (MUR 2,000,000 per MWac for the entire 25-year Term, per Addendum No. 2 Part G) equates to MUR 20 million for a 10 MW project — this is less than the Development Security (MUR 30 million) and represents a very low liability cap. This needs careful legal review.",
+        "",
+        "5. PPA Article 5.5(k) (dealing with substation GIS delay) is referenced in Pre-Bid Item 33 as providing protection if the GIS substation is delayed, but the text of this article was not included in the reviewed documents. Bidders must obtain and review the full PPA text.",
+      ], AMBER_BG, AMBER),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 8: FINANCIAL CONSIDERATIONS
+      // ============================================================
+      h1("8. Financial Considerations"),
+      h2("8.1 Tariff Structure"),
+      para("The Quoted Tariff must be expressed in MUR per kWh, or a mix of USD and MUR. At least 50% of the tariff must be in MUR. The MUR/USD weighting matters for competitive evaluation: bidders with a higher MUR weighting have an advantage in the LUCE calculation as MUR forecasts show approximately 1.27% annual depreciation against USD in the CEB exchange rate schedule (Annex 10)."),
+      spacer(80),
+      infoBox("LUCE Formula Key Parameters", [
+        "Discount Rate: 8%",
+        "PPA Term: 25 years from SCOD",
+        "Project SCOD for LUCE calculation: January 2028",
+        "USD/MUR forecast rates: Annex 10 (from MUR 47.34 in 2027 to MUR 65.90 in 2053 — approximately 1.27% annual depreciation)",
+        "Annual exported energy: As declared in Annex 11 (minimum 22% CUF)",
+        "Note: Tariff is fixed and firm for the entire 25-year PPA term — there is NO indexation for inflation or cost escalation."
+      ], LIGHT_BLUE, DARK_BLUE),
+
+      h2("8.2 Key Cost Drivers to Model"),
+      bullet("Solar PV array: Sized for minimum 22% CUF but ideally with 15-20% oversize to account for degradation over 25 years."),
+      bullet("BESS: Approximately 50-60 MWh for a standard dispatch profile (8 hours at 5 MW evening output), plus cycling degradation reserve. BESS replacement cycles must be budgeted — typically every 10-12 years for lithium-ion."),
+      bullet("Grid-forming inverters: Premium cost over standard inverters; limited supplier pool."),
+      bullet("22 kV interconnection line: Budget MUR 3.2M to 35.1M per km depending on overhead vs. underground. Bidders should minimise distance to substation in site selection."),
+      bullet("GIS/switchgear panel: Shared 50/50 with CEB. Budget MUR 3.0M per panel (2026 estimates)."),
+      bullet("Fibre optic communication infrastructure: Site to substation."),
+      bullet("Power forecasting equipment and software: Ongoing subscription/maintenance costs."),
+      bullet("Pyranometer system: Two pyranometers (main + backup) procured, installed and maintained by the Power Generator at its own cost."),
+      bullet("EIA and permitting costs: Significant professional fees."),
+      bullet("Land costs: Lease/purchase of low/marginal agricultural land; right of way payments."),
+      bullet("Development Security: MUR 30 Million cash/bank guarantee — cost of capital on this must be included."),
+      bullet("E-waste disposal reserve: Long-term provision required."),
+      bullet("Cyclone insurance: Mandatory given the risk profile of Mauritius."),
+      bullet("O&M costs: Including O&M Contractor fees (2+ years minimum) and independent O&M thereafter."),
+      bullet("Independent Engineer fees: CEB-appointed but relevant to commissioning timeline."),
+
+      h2("8.3 Revenue Risks to Model"),
+      bullet("DFR Damages at 1.5x tariff if daily average DFR falls below 90%."),
+      bullet("Forecasting Penalties for deviations exceeding +/-5% of Revised Forecast."),
+      bullet("Generation Shortfall Liquidated Damages at 1.5x tariff for annual CUF shortfall below declared CUF."),
+      bullet("Capacity Shortfall Damages of MUR 40,000,000 per MWac shortfall if commissioned capacity is below 90% of 10 MW at Commissioning Long Stop Date."),
+      bullet("No separate compensation for ancillary services (frequency regulation, voltage support, black start, etc.) — these must be built into the tariff."),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 9: ADVISORY VERDICT
+      // ============================================================
+      h1("9. Investment Advisory Verdict"),
+
+      infoBox("Overall Recommendation: CAUTIOUSLY VIABLE — Proceed with Conditions", [
+        "This project is suitable for investment by experienced renewable energy developers with relevant solar PV + BESS experience, strong project management capability, and the financial strength to absorb the front-loaded permitting and development risk. It is NOT suitable for first-time developers in Mauritius, investors with limited BESS experience, or those unable to mobilise rapidly after PPA signature."
+      ], YELLOW_BG, "8B6914"),
+
+      spacer(120),
+      h2("9.1 Factors Supporting Investment"),
+      bullet("Strong sovereign counterparty: CEB is GoM-owned and backstopped by a Government Support Agreement — credit risk is low."),
+      bullet("25-year contracted revenue: Long-term, fixed-tariff PPA with a government utility provides bankable cashflow."),
+      bullet("Policy momentum: The GoM's 2025-2030 programme and MUR 30 billion commitment signal genuine political will. This is a corrective procurement after delays in the 2022 round, suggesting lessons have been learned."),
+      bullet("Relaxed qualification: The removal of EPC shareholding requirements and BESS O&M experience significantly expands the bidder universe."),
+      bullet("ISA SIDS Platform: Potential access to multilateral risk guarantees (MIGA, AfDB PRG) and enhanced investor visibility."),
+      bullet("Improved PPA protections: Addendum No. 2 introduces cyclone recovery provisions, DFR exemptions, and Force Majeure clarifications that meaningfully reduce operational risk."),
+      bullet("Competitive market: With up to 10 projects available and multiple substations, the procurement avoids extreme crowding."),
+
+      h2("9.2 Conditions for Proceeding"),
+      numbered("Conduct a thorough site search and MSIRI classification check BEFORE bid submission. Land availability on suitable (low/marginal) classified land near eligible substations is the single biggest project risk and must be resolved pre-bid."),
+      numbered("Commission a detailed technical feasibility study including solar resource assessment, BESS sizing simulation (must demonstrate compliance with dispatch profile), and grid connection study."),
+      numbered("Obtain a full copy of the PPA (including all Schedules) and obtain a legal opinion from a Mauritius-qualified lawyer on all contractual provisions, particularly the penalty structure, Conditions Subsequent, and limitation of liability."),
+      numbered("Submit a written clarification to CEB on: (a) the BESS 30% threshold applicability post-Addendum No. 2; and (b) the ROW/EIA circular dependency (unanswered Pre-Bid Item 36)."),
+      numbered("Develop a detailed financial model incorporating all penalty scenarios, BESS replacement cycles, and a sensitivity analysis on CUF achievement, tariff levels, and exchange rates."),
+      numbered("Initiate DFI discussions (e.g., MIGA, AfDB, DEG, Proparco) in parallel with bid preparation. DFI approval processes take 6-12 months and must align with the 7-month Conditions Subsequent window."),
+      numbered("Select an EPC Contractor and O&M Contractor pre-bid. Although they need not be shareholders, they must be contractually committed as their track record forms part of the Technical Capacity evidence."),
+      numbered("Target substations with multiple available bays (e.g., Chaumiere with 3, Rose Belle with 3, Fort Victoria with 3, La Tour Koenig with 3) to reduce the risk of being outcompeted on a single-bay substation."),
+
+      h2("9.3 Deal-Breaker Conditions"),
+      infoBox("Conditions Under Which We Advise Not to Proceed", [
+        "Do NOT proceed if:",
+        "  • No suitable MSIRI-classified low/marginal land can be identified within a commercially viable distance of an eligible substation.",
+        "  • The bidder cannot demonstrate the required technical experience (2 solar PV + BESS projects of 10 MWac each) and cannot identify qualifying EPC/O&M contractors to provide this evidence.",
+        "  • The bidder's financial model shows the LUCE-competitive tariff does not deliver an acceptable risk-adjusted return after accounting for all penalties, BESS replacement capex, and permitting costs.",
+        "  • The bidder cannot arrange financing (equity or DFI debt) within 7 months of PPA signature.",
+        "  • The bidder is subject to any Conflict of Interest as redefined by Addendum No. 2 (no 20% threshold carve-out)."
+      ], AMBER_BG, AMBER),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 10: KEY DATES
+      // ============================================================
+      h1("10. Key Dates & Milestone Summary"),
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [2400, 2400, 4560],
+        rows: [
+          headerRow(["Event", "Date", "Action Required"], [2400, 2400, 4560]),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "RFP Issued", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "13 April 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Download all documents from ceb.mu", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Last date for written queries", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "24 June 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Submit outstanding clarifications, including ROW/EIA issue and BESS threshold query", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Last Addendum issuance", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "~8 July 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Monitor ceb.mu for any further addenda", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: AMBER_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "BID DUE DATE", bold: true, size: 20, color: AMBER, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: AMBER_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "15 July 2026 @ 13:30 Mauritius Time", bold: true, size: 20, color: AMBER, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: AMBER_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Hard copy original + 2 copies of Qualification Proposal and Financial Proposal to CEB Chairman Tender Committee, Royal Road, Curepipe, Mauritius. Also submit original bank guarantee for Bid Security.", bold: true, size: 20, color: AMBER, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Qualification Evaluation", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "By 14 August 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Ensure all qualification documents are in order; respond promptly to any CEB requests for clarification", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Issue of LOI", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "~Sept–Oct 2026 (indicative)", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Within 8 weeks: submit Land Lease Agreement, ROW identification, and MSIRI confirmation", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "PPA Signature", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Within 15 days of LOA", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Development Security (MUR 30M) must be submitted within 30 days of LOA issuance", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Conditions Subsequent Longstop", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "7 months from PPA Execution Date", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "EIA, financial closure, EPC appointment, GSA execution. 3-month further extension before termination rights triggered.", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREEN_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "Target SCOD (COD)", bold: true, size: 20, color: GREEN, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 2400, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREEN_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "January 2028", bold: true, size: 20, color: GREEN, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 4560, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: GREEN_BG, type: ShadingType.CLEAR },
+              children: [new Paragraph({ children: [new TextRun({ text: "11 months of EPC construction window after Conditions Subsequent completion. Capacity Shortfall Damages apply if <90% of 10 MW commissioned.", bold: true, size: 20, color: GREEN, font: "Arial" })] })] }),
+          ]}),
+        ]
+      }),
+
+      pageBreak(),
+
+      // ============================================================
+      // SECTION 11: DOCUMENT INVENTORY
+      // ============================================================
+      h1("11. Source Documents Reviewed"),
+      para("This white paper is based exclusively on the following documents issued by CEB:"),
+      spacer(80),
+      new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [3600, 1800, 3960],
+        rows: [
+          headerRow(["Document", "Date", "Key Contents"], [3600, 1800, 3960]),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 3600, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "RFP-CPR-2026-10508 — Main RFP Document", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 1800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "13 April 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3960, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Full RFP with Schedules 1-3, Annexes 1-15, Glossary, eligibility/qualification criteria, bid process, evaluation methodology, exchange rate assumptions, dispatch profiles, IEC standards, substation list", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 3600, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Addendum No. 1 — RFP/CPR/2026/10508_Add 1", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 1800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "06 May 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3960, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Single amendment: insertion under Section 27 confirming Mauritius membership of the International Solar Alliance (ISA) SIDS Platform and its implications for investor confidence and multilateral financing.", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 3600, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Addendum No. 2 — RFP/CPR/2026/10508_Add 2", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 1800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "17 June 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3960, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Major amendments: Parts A-U to RFP and Addendum to PPA (Parts A-U). Covers qualification criteria relaxation, EPC/O&M contractor provisions, Conflict of Interest changes, PPA definitions, Conditions Subsequent, DFR damages, CUF liquidated damages, cyclone provisions, limitation of liability, independent engineer, capacity shortfall, forecasting, O&M system, exchange rate reconciliation, pyranometer requirements (Annex 2), DFR calculation schedule (Annex 1).", size: 20, font: "Arial" })] })] }),
+          ]}),
+          new TableRow({ children: [
+            new TableCell({ borders: BORDERS, width: { size: 3600, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "Pre-Bid Meeting Minutes (27 May 2026)", bold: true, size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 1800, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "27 May 2026", size: 20, font: "Arial" })] })] }),
+            new TableCell({ borders: BORDERS, width: { size: 3960, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: "44 Q&A items covering: qualification thresholds, land classification, CUF/dispatch profile, substation allocation, tariff currency, Right of Way, EPC shareholding, ancillary services, Force Majeure, bid security currency, and more. Item 36 was NOT answered (ROW/EIA circular dependency).", size: 20, font: "Arial" })] })] }),
+          ]}),
+        ]
+      }),
+
+      spacer(200),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 200, after: 80 },
+        children: [new TextRun({ text: "— END OF WHITE PAPER —", bold: true, size: 22, color: DARK_BLUE, font: "Arial" })]
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 40, after: 40 },
+        children: [new TextRun({ text: "Prepared June 2026 | Confidential | For Private Circulation Only", size: 18, color: "888888", font: "Arial" })]
+      }),
+    ]
+  }]
+});
+
+Packer.toBuffer(doc).then(buffer => {
+  fs.writeFileSync('/home/claude/CEB_REHF_Investment_White_Paper.docx', buffer);
+  console.log('White paper created successfully.');
+});
